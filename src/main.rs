@@ -11,19 +11,22 @@ fn with_exec_extension(binary: &Path) -> Vec<PathBuf> {
 #[cfg(target_os = "windows")]
 fn with_exec_extension(binary: &Path) -> Vec<PathBuf> {
     use std::os::windows::ffi::OsStrExt;
-    let w_binary: Vec<u16> = binary
+    let w_binary = binary
         .as_os_str()
         .to_ascii_lowercase()
         .encode_wide()
-        .collect();
+        .collect::<Vec<_>>();
 
     env::var_os("PATHEXT")
         .and_then(|exts| {
             Some(
                 env::split_paths(&exts)
                     .filter_map(|ext| {
-                        let w_ext: Vec<_> =
-                            ext.as_os_str().to_ascii_lowercase().encode_wide().collect();
+                        let w_ext = ext
+                            .as_os_str()
+                            .to_ascii_lowercase()
+                            .encode_wide()
+                            .collect::<Vec<_>>();
 
                         if w_binary.ends_with(&w_ext) {
                             Some(vec![binary.into()])
