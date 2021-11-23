@@ -1,3 +1,4 @@
+use ctrlc;
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, ExitStatus};
@@ -191,6 +192,8 @@ fn main() {
             process::exit(1);
         }
     };
+
+    ctrlc::set_handler(move || {}).expect("Unable to set Ctrl-C handler");
 
     let status = Command::new(python_binary)
         .args(call_args)
