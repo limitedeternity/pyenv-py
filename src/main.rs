@@ -1,15 +1,25 @@
-use ctrlc;
-use regex::Regex;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, ExitStatus};
-use std::{env, fs};
+use std::{env, fs, iter};
 
-#[cfg(not(target_os = "windows"))]
+use cfg_match::cfg_match;
+use ctrlc;
+use lazy_static::lazy_static;
+use regex::Regex;
+
+lazy_static! {
+    static ref PLACEHOLDER: String = "PLACEHOLDER".into();
+    static ref PY_VER_ARG_REGEX: Regex =
+        Regex::new(r"^(?:-(\d+(?:\.\d+){0,2}))(?:.*-(32|64))?").unwrap();
+}
+
+#[cfg(unix)]
 fn with_exec_extension(binary: &Path) -> Vec<PathBuf> {
     vec![binary.into()]
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(windows)]
 fn with_exec_extension(binary: &Path) -> Vec<PathBuf> {
     use std::os::windows::ffi::OsStrExt;
     let w_binary = binary
@@ -76,55 +86,69 @@ fn find_binary(binary: impl AsRef<Path>) -> Option<PathBuf> {
     env::var_os("PATH").and_then(|paths| find_binary_on_paths(binary, env::split_paths(&paths)))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(unix)]
 fn exit_with_child_status(status: ExitStatus) -> ! {
     use std::os::unix::process::ExitStatusExt;
     process::exit(status.code().unwrap_or(status.signal().unwrap_or(1)));
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(windows)]
 fn exit_with_child_status(status: ExitStatus) -> ! {
     process::exit(status.code().unwrap_or(1));
 }
 
 fn main() {
     let argv = env::args().collect::<Vec<_>>();
-    let (argv_0, argv_rest) = argv.split_first().unwrap();
-    let (py_ver, call_args) = argv_rest.split_first().unwrap_or_else(|| {
-        eprintln!(
-            "Usage: {} -{{version}}(-{{architecture}}) [arg1, arg2, ...]",
-            argv_0
-        );
+    let (_, argv_rest) = argv.split_first().unwrap();
+    let (py_ver, call_args) = argv_rest
+        .split_first()
+        .and_then(|split_pair| {
+            if PY_VER_ARG_REGEX.is_match(split_pair.0) {
+                Some(split_pair)
+            } else {
+                None
+            }
+        })
+        .unwrap_or((&PLACEHOLDER, argv_rest));
 
+    let pyenv_binary = find_binary("pyenv").unwrap_or_else(|| {
+        eprintln!("Unable to find pyenv");
         process::exit(1);
     });
 
-    let version_dirs = fs::read_dir(
-        find_binary("pyenv")
-            .unwrap_or_else(|| {
-                eprintln!("Unable to find pyenv");
-                process::exit(1);
-            })
-            .ancestors()
-            .skip(2)
-            .next()
-            .unwrap()
-            .join("versions"),
-    )
-    .unwrap()
-    .map(|entry| entry.unwrap().path())
-    .collect::<Vec<_>>()
-    .into_iter()
-    .rev()
-    .collect::<Vec<_>>();
+    let versions_dir = pyenv_binary
+        .ancestors()
+        .skip(2)
+        .next()
+        .unwrap()
+        .join("versions");
 
-    let avail_versions = version_dirs
-        .iter()
-        .map(|dir| dir.file_name().unwrap().to_string_lossy())
-        .collect::<Vec<_>>();
+    let shims_dir = pyenv_binary
+        .ancestors()
+        .skip(2)
+        .next()
+        .unwrap()
+        .join("shims");
 
-    let ver_arg_regex = Regex::new(r"^(?:-(\d+(?:\.\d+){0,2}))(?:-(\d+))?$").unwrap();
-    let captures = ver_arg_regex.captures(py_ver).map(|groups| {
+    let (loc_dirnames, py_bin_locs): (Vec<_>, Vec<_>) = fs::read_dir(versions_dir)
+        .unwrap()
+        .filter_map(|result| match result {
+            Ok(entry) => Some(entry.path()),
+            _ => None,
+        })
+        .chain(iter::once(shims_dir))
+        .map(|path| {
+            (
+                path.file_name().unwrap().to_string_lossy().to_string(),
+                path,
+            )
+        })
+        .collect::<BTreeMap<_, _>>()
+        .into_iter()
+        .rev()
+        .unzip();
+
+    let captures = PY_VER_ARG_REGEX.captures(py_ver).map(|groups| {
         groups
             .iter() // All captured groups
             .skip(1) // Skip the complete match
@@ -134,60 +158,40 @@ fn main() {
     });
 
     let version_idx_opt = match captures.as_ref().map(|c| c.as_slice()) {
-        Some([py_ver]) => avail_versions.iter().position(|v| v.starts_with(py_ver)),
+        Some([py_ver]) => loc_dirnames.iter().position(|v| v.starts_with(py_ver)),
 
-        Some([py_ver, "32"]) => match std::mem::size_of::<&char>() {
-            4 => avail_versions.iter().position(|v| v.starts_with(py_ver)),
+        Some([py_ver, "32"]) => cfg_match! {
+            target_pointer_width = "32" => loc_dirnames.iter().position(|v| v.starts_with(py_ver)),
 
-            8 => avail_versions
+            _ => loc_dirnames
                 .iter()
-                .position(|v| v.starts_with(py_ver) && v.ends_with("win32")),
-
-            _ => {
-                eprintln!("Unable to determine CPU architecture");
-                process::exit(1);
-            }
+                .position(|v| v.starts_with(py_ver) && v.ends_with("win32"))
         },
 
-        Some([py_ver, "64"]) => match std::mem::size_of::<&char>() {
-            4 => avail_versions
+        Some([py_ver, "64"]) => cfg_match! {
+            target_pointer_width = "64" => loc_dirnames.iter().position(|v| v.starts_with(py_ver)),
+
+            _ => loc_dirnames
                 .iter()
-                .position(|v| v.starts_with(py_ver) && v.ends_with("amd64")),
-
-            8 => avail_versions.iter().position(|v| v.starts_with(py_ver)),
-
-            _ => {
-                eprintln!("Unable to determine CPU architecture");
-                process::exit(1);
-            }
+                .position(|v| v.starts_with(py_ver) && v.ends_with("amd64"))
         },
 
-        Some([_, _]) => {
-            eprintln!("Invalid architecture specified");
-            process::exit(1);
-        }
-
-        _ => {
-            eprintln!("Unable to parse version string");
-            process::exit(1);
-        }
+        _ => py_bin_locs
+            .iter()
+            .position(|v| v.components().nth_back(1).unwrap().as_os_str() != "versions"),
     };
 
     let python_binary = match version_idx_opt {
         Some(version_idx) => find_binary_on_paths(
             "python",
-            vec![version_dirs[version_idx].to_owned()].into_iter(),
+            vec![py_bin_locs[version_idx].to_owned()].into_iter(),
         )
         .unwrap_or_else(|| {
-            eprintln!(
-                "Python {} directory is damaged",
-                avail_versions[version_idx]
-            );
-
+            eprintln!("Unable to find python binary");
             process::exit(1);
         }),
 
-        None => {
+        _ => {
             eprintln!("Unable to find specified version");
             process::exit(1);
         }
@@ -198,7 +202,7 @@ fn main() {
     let status = Command::new(python_binary)
         .args(call_args)
         .status()
-        .expect("Unable to execute process");
+        .expect("Unable to execute the binary");
 
     exit_with_child_status(status);
 }

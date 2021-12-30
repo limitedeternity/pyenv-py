@@ -4,9 +4,8 @@
 Official Python Launcher doesn't see Python installations created by pyenv version manager. This one does.
 
 ## Usage:
-`py.exe -{version}(-{architecture}) [arg1, arg2, ...]`
 
-![Screenshot 2021-10-27 143012](https://user-images.githubusercontent.com/24318966/139057377-5cee7852-1bb7-430a-88e8-d14b2851478f.png)
+![Screenshot](https://user-images.githubusercontent.com/24318966/147737136-40ffa00a-5b30-4202-91dc-7d228f6a4bf2.png)
 
 ## Installing:
 

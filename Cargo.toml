@@ -1,6 +1,6 @@
 [package]
 name = "pyenv-py"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -8,5 +8,7 @@ name = "py"
 path = "src/main.rs"
 
 [dependencies]
+cfg-match = "0.2.1"
 ctrlc = "3.2.0"
+lazy_static = "1.4.0"
 regex = "1.5.4"
