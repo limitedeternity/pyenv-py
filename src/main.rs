@@ -4,7 +4,6 @@ use std::process::{self, Command, ExitStatus};
 use std::{env, fs, iter};
 
 use cfg_match::cfg_match;
-use ctrlc;
 use lazy_static::lazy_static;
 use regex::Regex;
 
@@ -72,14 +71,7 @@ fn find_binary_on_paths(
                 .map(|ext_b| dir.join(ext_b))
                 .collect::<Vec<_>>()
         })
-        .filter_map(|full_path| {
-            if full_path.is_file() {
-                Some(full_path)
-            } else {
-                None
-            }
-        })
-        .next()
+        .find(|full_path| full_path.is_file())
 }
 
 fn find_binary(binary: impl AsRef<Path>) -> Option<PathBuf> {
@@ -89,7 +81,7 @@ fn find_binary(binary: impl AsRef<Path>) -> Option<PathBuf> {
 #[cfg(unix)]
 fn exit_with_child_status(status: ExitStatus) -> ! {
     use std::os::unix::process::ExitStatusExt;
-    process::exit(status.code().unwrap_or(status.signal().unwrap_or(1)));
+    process::exit(status.code().unwrap_or_else(|| status.signal().unwrap_or(1)));
 }
 
 #[cfg(windows)]
@@ -118,15 +110,13 @@ fn main() {
 
     let versions_dir = pyenv_binary
         .ancestors()
-        .skip(2)
-        .next()
+        .nth(2)
         .unwrap()
         .join("versions");
 
     let shims_dir = pyenv_binary
         .ancestors()
-        .skip(2)
-        .next()
+        .nth(2)
         .unwrap()
         .join("shims");
 
@@ -152,12 +142,12 @@ fn main() {
         groups
             .iter() // All captured groups
             .skip(1) // Skip the complete match
-            .flat_map(|c| c) // Ignore all empty optional matches
+            .flatten() // Ignore all empty optional matches
             .map(|c| c.as_str()) // Get original strings
             .collect::<Vec<_>>()
     });
 
-    let version_idx_opt = match captures.as_ref().map(|c| c.as_slice()) {
+    let version_idx_opt = match captures.as_deref() {
         Some([py_ver]) => loc_dirnames.iter().position(|v| v.starts_with(py_ver)),
 
         Some([py_ver, "32"]) => cfg_match! {
