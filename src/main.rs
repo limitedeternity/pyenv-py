@@ -28,33 +28,31 @@ fn with_exec_extension(binary: &Path) -> Vec<PathBuf> {
         .collect::<Vec<_>>();
 
     env::var_os("PATHEXT")
-        .and_then(|exts| {
-            Some(
-                env::split_paths(&exts)
-                    .filter_map(|ext| {
-                        let w_ext = ext
-                            .as_os_str()
-                            .to_ascii_lowercase()
-                            .encode_wide()
-                            .collect::<Vec<_>>();
+        .map(|exts| {
+            env::split_paths(&exts)
+                .filter_map(|ext| {
+                    let w_ext = ext
+                        .as_os_str()
+                        .to_ascii_lowercase()
+                        .encode_wide()
+                        .collect::<Vec<_>>();
 
-                        if w_binary.ends_with(&w_ext) {
-                            Some(vec![binary.into()])
-                        } else {
-                            None
-                        }
-                    })
-                    .next()
-                    .unwrap_or_else(|| {
-                        env::split_paths(&exts)
-                            .map(|ext| {
-                                let mut with_ext = binary.as_os_str().to_owned();
-                                with_ext.push(ext);
-                                PathBuf::from(with_ext)
-                            })
-                            .collect::<Vec<_>>()
-                    }),
-            )
+                    if w_binary.ends_with(&w_ext) {
+                        Some(vec![binary.into()])
+                    } else {
+                        None
+                    }
+                })
+                .next()
+                .unwrap_or_else(|| {
+                    env::split_paths(&exts)
+                        .map(|ext| {
+                            let mut with_ext = binary.as_os_str().to_owned();
+                            with_ext.push(ext);
+                            PathBuf::from(with_ext)
+                        })
+                        .collect::<Vec<_>>()
+                })
         })
         .unwrap()
 }
@@ -81,7 +79,11 @@ fn find_binary(binary: impl AsRef<Path>) -> Option<PathBuf> {
 #[cfg(unix)]
 fn exit_with_child_status(status: ExitStatus) -> ! {
     use std::os::unix::process::ExitStatusExt;
-    process::exit(status.code().unwrap_or_else(|| status.signal().unwrap_or(1)));
+    process::exit(
+        status
+            .code()
+            .unwrap_or_else(|| status.signal().unwrap_or(1)),
+    );
 }
 
 #[cfg(windows)]
@@ -108,17 +110,8 @@ fn main() {
         process::exit(1);
     });
 
-    let versions_dir = pyenv_binary
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .join("versions");
-
-    let shims_dir = pyenv_binary
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .join("shims");
+    let versions_dir = pyenv_binary.ancestors().nth(2).unwrap().join("versions");
+    let shims_dir = pyenv_binary.ancestors().nth(2).unwrap().join("shims");
 
     let (loc_dirnames, py_bin_locs): (Vec<_>, Vec<_>) = fs::read_dir(versions_dir)
         .unwrap()
