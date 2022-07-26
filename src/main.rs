@@ -1,14 +1,15 @@
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, ExitStatus};
 use std::{env, fs, iter};
 
 use cfg_match::cfg_match;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 
 lazy_static! {
     static ref PLACEHOLDER: String = "PLACEHOLDER".into();
+    static ref PY_VER_REGEX: Regex = Regex::new(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?").unwrap();
     static ref PY_VER_ARG_REGEX: Regex =
         Regex::new(r"^(?:-(\d+(?:\.\d+){0,2}))(?:.*-(32|64))?").unwrap();
 }
@@ -94,11 +95,11 @@ fn exit_with_child_status(status: ExitStatus) -> ! {
 fn main() {
     let argv = env::args().collect::<Vec<_>>();
     let (_, argv_rest) = argv.split_first().unwrap();
-    let (py_ver, call_args) = argv_rest
+    let (py_ver_arg, py_call_args) = argv_rest
         .split_first()
-        .and_then(|split_pair| {
-            if PY_VER_ARG_REGEX.is_match(split_pair.0) {
-                Some(split_pair)
+        .and_then(|pair| {
+            if PY_VER_ARG_REGEX.is_match(pair.0) {
+                Some(pair)
             } else {
                 None
             }
@@ -113,7 +114,7 @@ fn main() {
     let versions_dir = pyenv_binary.ancestors().nth(2).unwrap().join("versions");
     let shims_dir = pyenv_binary.ancestors().nth(2).unwrap().join("shims");
 
-    let (loc_dirnames, py_bin_locs): (Vec<_>, Vec<_>) = fs::read_dir(versions_dir)
+    let (py_bin_locs, loc_dirnames) = fs::read_dir(versions_dir)
         .unwrap()
         .filter_map(|result| match result {
             Ok(entry) => Some(entry.path()),
@@ -121,22 +122,37 @@ fn main() {
         })
         .chain(iter::once(shims_dir))
         .map(|path| {
+            let dirname = path.file_name().unwrap().to_string_lossy().to_string();
+            let captures = PY_VER_REGEX.captures(&dirname).map(|groups| {
+                groups
+                    .iter()
+                    .skip(1)
+                    .flatten()
+                    .map(|c| c.as_str().parse::<u32>().unwrap())
+                    .collect::<Vec<_>>()
+            });
+
             (
-                path.file_name().unwrap().to_string_lossy().to_string(),
-                path,
+                match captures.as_deref() {
+                    Some([major, minor, patch]) => (*major, *minor, *patch),
+                    Some([major, minor]) => (*major, *minor, 0),
+                    Some([major]) => (*major, 0, 0),
+                    _ => (0, 0, 0),
+                },
+                (path, dirname),
             )
         })
-        .collect::<BTreeMap<_, _>>()
-        .into_iter()
+        .sorted_by_key(|pair| pair.0)
         .rev()
-        .unzip();
+        .map(|pair| pair.1)
+        .unzip::<_, _, Vec<_>, Vec<_>>();
 
-    let captures = PY_VER_ARG_REGEX.captures(py_ver).map(|groups| {
+    let captures = PY_VER_ARG_REGEX.captures(py_ver_arg).map(|groups| {
         groups
-            .iter() // All captured groups
-            .skip(1) // Skip the complete match
-            .flatten() // Ignore all empty optional matches
-            .map(|c| c.as_str()) // Get original strings
+            .iter()
+            .skip(1)
+            .flatten()
+            .map(|c| c.as_str())
             .collect::<Vec<_>>()
     });
 
@@ -183,7 +199,7 @@ fn main() {
     ctrlc::set_handler(move || {}).expect("Unable to set Ctrl-C handler");
 
     let status = Command::new(python_binary)
-        .args(call_args)
+        .args(py_call_args)
         .status()
         .expect("Unable to execute the binary");
 
