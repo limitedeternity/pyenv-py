@@ -160,7 +160,7 @@ fn main() {
         Some([py_ver]) => loc_dirnames.iter().position(|v| v.starts_with(py_ver)),
 
         Some([py_ver, "32"]) => cfg_match! {
-            target_pointer_width = "32" => loc_dirnames.iter().position(|v| v.starts_with(py_ver)),
+            target_pointer_width = "32" => loc_dirnames.iter().position(|v| v.starts_with(py_ver) && !v.ends_with("amd64")),
 
             _ => loc_dirnames
                 .iter()
@@ -168,7 +168,7 @@ fn main() {
         },
 
         Some([py_ver, "64"]) => cfg_match! {
-            target_pointer_width = "64" => loc_dirnames.iter().position(|v| v.starts_with(py_ver)),
+            target_pointer_width = "64" => loc_dirnames.iter().position(|v| v.starts_with(py_ver) && !v.ends_with("win32")),
 
             _ => loc_dirnames
                 .iter()
