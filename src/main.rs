@@ -207,7 +207,7 @@ fn main() {
     let status = Command::new(target_binary)
         .args(py_call_args)
         .status()
-        .expect("Unable to execute '{}' binary", target_name);
+        .unwrap_or_else(|_| panic!("Unable to execute '{}' binary", target_name));
 
     exit_with_child_status(status);
 }
