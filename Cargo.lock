@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "pyenv-py"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "cfg-match",
  "ctrlc",
