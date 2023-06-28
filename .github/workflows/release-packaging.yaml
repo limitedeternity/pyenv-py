@@ -1,0 +1,78 @@
+name: Release Packaging
+on:
+  push:
+    branches:
+      - main
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  release:
+    name: Release Packaging
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install Python, pipenv and Pipfile packages
+        uses: palewire/install-python-pipenv-pipfile@v3
+        with:
+          python-version: 3.9
+
+      - name: Install latest stable Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          default: true
+          toolchain: stable
+          target: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all --check
+
+      - name: Check codestyle
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all-features
+
+      - name: Build py.exe
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+      - name: Upload py.exe
+        uses: actions/upload-artifact@v3
+        with:
+          name: py
+          path: target/release/py.exe
+          if-no-files-found: error
+
+      - name: Clean build artifacts
+        uses: actions-rs/cargo@v1
+        with:
+          command: clean
+
+      - name: Prepare Cargo.toml to build pyw.exe
+        run: pipenv run python .github/workflows/prepare_pyw.py
+
+      - name: Build pyw.exe
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --features pythonw
+
+      - name: Upload pyw.exe
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyw
+          path: target/release/pyw.exe
+          if-no-files-found: error
+
+      - name: Clean build artifacts
+        uses: actions-rs/cargo@v1
+        with:
+          command: clean
