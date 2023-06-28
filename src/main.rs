@@ -180,13 +180,19 @@ fn main() {
             .position(|v| v.components().nth_back(1).unwrap().as_os_str() != "versions"),
     };
 
-    let python_binary = match version_idx_opt {
+    let binary_name = if cfg!(feature = "pythonw") {
+        "pythonw"
+    } else {
+        "python"
+    };
+
+    let binary_path = match version_idx_opt {
         Some(version_idx) => find_binary_on_paths(
-            "python",
+            binary_name,
             vec![py_bin_locs[version_idx].to_owned()].into_iter(),
         )
         .unwrap_or_else(|| {
-            eprintln!("Unable to find python binary");
+            eprintln!("Unable to find '{}' binary", binary_name);
             process::exit(1);
         }),
 
@@ -198,10 +204,10 @@ fn main() {
 
     ctrlc::set_handler(move || {}).expect("Unable to set Ctrl-C handler");
 
-    let status = Command::new(python_binary)
+    let status = Command::new(binary_path)
         .args(py_call_args)
         .status()
-        .expect("Unable to execute the binary");
+        .unwrap_or_else(|_| panic!("Unable to execute '{}' binary", binary_name));
 
     exit_with_child_status(status);
 }

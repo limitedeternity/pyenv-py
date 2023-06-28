@@ -3,6 +3,9 @@ name = "pyenv-py"
 version = "0.2.2"
 edition = "2021"
 
+[features]
+pythonw = []
+
 [[bin]]
 name = "py"
 path = "src/main.rs"
